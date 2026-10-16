@@ -1,9 +1,9 @@
 {
   "id": "discord-presence.discord-rp",
   "name": "Discord Rich Presence",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "apiVersion": 1,
-  "description": "Show the active Bentomux workspace, git branch and agent status on your Discord profile. Nothing to configure.",
+  "description": "Show the active Bentomux workspace, git branch and agent status on your Discord profile. Turn the workspace line off from Settings if you would rather not share where you are.",
   "author": "farrasjibran",
   "entry": "index.js",
   "icon": { "type": "builtin", "name": "chat" },

@@ -23,6 +23,10 @@ const ID = 'discord-presence.discord-rp';
    application, which is what owns the logo asset below. */
 const APP_ID = '1559054599837720608';
 
+/* The application's display name, which Discord writes on the presence's
+   first line and the settings form echoes back as what is being shared. */
+const APP_NAME = 'Bentomux';
+
 /* Asset key for the Bentomux logo, as uploaded under this application's
    Rich Presence assets. Discord resolves an asset key against the
    application id in the handshake, so this only resolves for APP_ID above —
@@ -78,15 +82,26 @@ export function activate(ctx) {
   const runStates = {};
 
   let enabled = true;
+  /* Whether the workspace/branch line is shared. Default on, so an install
+     that predates this switch keeps showing exactly what it showed before. */
+  let showWorktree = true;
   let startTime = Date.now();
   let lastSentAt = 0;
   let lastPayload = '';
   let timer = null;
 
-  const readEnabled = async () => {
+  const readSettings = async () => {
     const stored = await ctx.storage.get(SETTINGS_KEY);
-    return typeof stored?.enabled === 'boolean' ? stored.enabled : true;
+    return {
+      enabled: typeof stored?.enabled === 'boolean' ? stored.enabled : true,
+      showWorktree:
+        typeof stored?.showWorktree === 'boolean' ? stored.showWorktree : true,
+    };
   };
+
+  /* Both flags live in one stored object, so a write must carry both or the
+     one it omits is lost. */
+  const writeSettings = () => ctx.storage.set(SETTINGS_KEY, { enabled, showWorktree });
 
   /** The workspace the presence describes, or null when none is open. */
   async function activeWorkspace() {
@@ -100,10 +115,13 @@ export function activate(ctx) {
     lastSentAt = Date.now();
     if (!enabled) return;
 
-    const workspace = await activeWorkspace();
-    const git = workspace
-      ? await ctx.app.gitStatus(workspace.id).catch(() => null)
-      : null;
+    /* The workspace and its git status only feed the state line, so when that
+       line is hidden there is nothing to read them for. */
+    const workspace = showWorktree ? await activeWorkspace() : null;
+    const git =
+      showWorktree && workspace
+        ? await ctx.app.gitStatus(workspace.id).catch(() => null)
+        : null;
 
     const agents = agentLine(runStates);
     const activity = {
@@ -114,11 +132,15 @@ export function activate(ctx) {
       details: agents ?? 'Bentomux',
       /* one line under that: where you are, and how dirty it is. When an
          agent is running its status is already on the line above, so the
-         change count is the only thing left to say. */
-      state: [
-        [workspace?.name ?? 'no workspace', git?.branch].filter(Boolean).join(' · '),
-        agents ? (changeLine(git) ?? null) : null,
-      ].filter(Boolean).join(' — '),
+         change count is the only thing left to say. Left off entirely when
+         the user has turned off sharing the worktree — the presence then
+         carries no workspace or branch name. */
+      state: showWorktree
+        ? [
+            [workspace?.name ?? 'no workspace', git?.branch].filter(Boolean).join(' · '),
+            agents ? (changeLine(git) ?? null) : null,
+          ].filter(Boolean).join(' — ')
+        : undefined,
       largeImage: LOGO_ASSET,
       /* Discord renders `start_timestamp` next to the small icon, and that
          icon only appears when `small_image` is set to something distinct
@@ -173,9 +195,9 @@ export function activate(ctx) {
 
   /* ---------------- settings ---------------- */
 
-  /* The application id and the logo are baked in, so the only thing a user
-     can set is whether to share at all — anything more would be a value they
-     cannot verify, since neither is visible from inside the app. */
+  /* The application id and the logo are baked in, so the only things a user
+     can set are whether to share at all, and whether the workspace/branch
+     line goes out with it. */
   function settingsForm(repaint) {
     const wrap = document.createElement('div');
     wrap.style.cssText = 'display:flex;flex-direction:column;gap:10px;max-width:520px';
@@ -203,9 +225,35 @@ export function activate(ctx) {
     paintToggle();
     toggle.addEventListener('click', () => void (async () => {
       enabled = !enabled;
-      await ctx.storage.set(SETTINGS_KEY, { enabled });
+      await writeSettings();
       paintToggle();
+      paintWorktree();
       await applyEnabled();
+      await paintStatus();
+      repaint?.();
+    })());
+
+    /* A second switch for the line that names where you are. It is separate
+       from sharing so someone who wants the agent status on their profile but
+       not the name of the project they are in can have exactly that. */
+    const worktree = document.createElement('button');
+    worktree.type = 'button';
+    worktree.className = 'btn';
+    const paintWorktree = () => {
+      worktree.textContent = showWorktree
+        ? 'Hide workspace & branch'
+        : 'Show workspace & branch';
+      worktree.disabled = !enabled;
+    };
+    paintWorktree();
+    worktree.addEventListener('click', () => void (async () => {
+      showWorktree = !showWorktree;
+      await writeSettings();
+      paintWorktree();
+      /* Resend immediately so the change lands now, not on the next heartbeat. */
+      lastSentAt = 0;
+      lastPayload = '';
+      await send();
       await paintStatus();
       repaint?.();
     })());
@@ -227,7 +275,7 @@ export function activate(ctx) {
       'Rich Presence comes from the Discord desktop app. Discord in a browser ' +
       'has no way to receive it, so nothing appears there.';
 
-    wrap.append(status, hint, toggle, refresh);
+    wrap.append(status, hint, toggle, worktree, refresh);
     void paintStatus();
     return wrap;
   }
@@ -251,7 +299,7 @@ export function activate(ctx) {
      presence needs: it has no click to wait for. It sends once, then
      heartbeats so a presence Discord silently dropped comes back. */
   ctx.ui.service(`${ID}.service`, async signal => {
-    enabled = await readEnabled();
+    ({ enabled, showWorktree } = await readSettings());
     if (enabled) await send();
 
     while (!signal.aborted) {
@@ -268,15 +316,15 @@ export function activate(ctx) {
   });
 
   ctx.ui.command(`${ID}.toggle`, async () => {
-    enabled = await readEnabled();
+    ({ enabled, showWorktree } = await readSettings());
     enabled = !enabled;
-    await ctx.storage.set(SETTINGS_KEY, { enabled });
+    await writeSettings();
     await applyEnabled();
     ctx.log(enabled ? 'presence on' : 'presence off');
   });
 
   ctx.ui.command(`${ID}.refresh`, async () => {
-    enabled = await readEnabled();
+    ({ enabled, showWorktree } = await readSettings());
     lastSentAt = 0;
     lastPayload = '';
     await send();
@@ -285,8 +333,9 @@ export function activate(ctx) {
 
   ctx.ui.settingsSection(`${ID}.settings`, paint => {
     const host = document.createElement('div');
-    void readEnabled().then(stored => {
-      enabled = stored;
+    void readSettings().then(stored => {
+      enabled = stored.enabled;
+      showWorktree = stored.showWorktree;
       host.append(settingsForm(paint));
     });
     return host;

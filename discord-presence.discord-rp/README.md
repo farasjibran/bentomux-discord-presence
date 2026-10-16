@@ -14,14 +14,19 @@ Bentomux-v2 · feat/plugin — 2 files changed ↑2
 **Bentomux → Settings → Plugins → Browse marketplace… → Discord Rich Presence**
 → Install.
 
-Or install from a release: download `discord-presence.discord-rp-1.0.0.zip`
+Or install from a release: download `discord-presence.discord-rp-1.1.0.zip`
 from the [releases page](https://github.com/farrasjibran/bentomux-discord-presence/releases)
 and use **Install from zip**.
 
-There is nothing to configure. The presence appears as **Bentomux** with the
-Bentomux logo, as soon as the Discord desktop app is running.
+It works out of the box: the presence appears as **Bentomux** with the Bentomux
+logo, as soon as the Discord desktop app is running.
 
-To pause it: **Settings → Discord Presence → Stop sharing presence**.
+Two switches live in **Settings → Discord Presence**:
+
+- **Stop sharing presence** — pauses the presence entirely.
+- **Hide workspace & branch** — keeps the presence (agent status included) but
+  drops the line that names the workspace and branch, for when you would rather
+  not show where you are working.
 
 ## What it sends
 
@@ -32,7 +37,7 @@ name, so the plugin only fills the other two:
 |---|---|---|
 | 1 | — | `Bentomux`, written by Discord from the application name |
 | 2 | `details` | Agent status (`claude — working`, `2 agents — needs you`), or `Bentomux` when no agent is running |
-| 3 | `state` | Workspace · branch, plus the change count while an agent is running |
+| 3 | `state` | Workspace · branch, plus the change count while an agent is running. Omitted when **Hide workspace & branch** is on. |
 
 The logo comes from the Rich Presence asset uploaded to the Discord Developer
 Portal (`large_image`).
@@ -60,7 +65,7 @@ browser, this plugin shows nothing — and no plugin can.
 |---|---|
 | `app.read` | Read the active workspace (`getState`) and agent state (`onRuntimeStatus`, `onBranch`) |
 | `git.read` | `gitStatus` for the branch and the change count |
-| `storage` | Store one flag: sharing or not |
+| `storage` | Store the two flags: sharing, and whether to include the workspace line |
 | `backend.invoke` | The generic path to a backend command |
 | `discord.write` | **`discord_set_activity` / `discord_clear_activity`** — the only permission here that writes anything |
 
